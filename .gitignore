@@ -1,0 +1,17 @@
+node_modules/
+.tools/
+.env
+.env.*
+!.env.example
+
+# Playwright / BDD output
+reports/
+test-results/
+playwright-report/
+blob-report/
+.features-gen/
+.auth/
+.services/
+
+.DS_Store
+*.log
