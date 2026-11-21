@@ -1,0 +1,6 @@
+node_modules
+.tools
+reports
+test-results
+.features-gen
+package-lock.json

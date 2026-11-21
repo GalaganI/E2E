@@ -1,0 +1,160 @@
+name: Playwright E2E
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      cross_browser:
+        description: 'Also run UI tests in Firefox and WebKit'
+        type: boolean
+        default: false
+  schedule:
+    # Nightly full regression, including Firefox and WebKit (02:30 UTC).
+    - cron: '30 2 * * *'
+
+# Least privilege: the workflow only reads the repository and uploads artifacts.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: 'true'
+  NODE_VERSION: '24'
+  CROSS_BROWSER: ${{ github.event_name == 'schedule' || inputs.cross_browser == true }}
+
+jobs:
+  static-checks:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: TypeScript (includes generated BDD specs)
+        run: npm run typecheck
+
+  e2e:
+    name: API, smoke and regression tests
+    needs: static-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ env.CROSS_BROWSER }}
+
+      - name: Install Playwright browsers
+        run: |
+          if [ "$CROSS_BROWSER" = "true" ]; then
+            npx playwright install --with-deps chromium firefox webkit
+          else
+            npx playwright install --with-deps chromium
+          fi
+
+      - name: Cache Mailpit binary
+        uses: actions/cache@v6
+        with:
+          path: .tools/mailpit
+          key: mailpit-${{ runner.os }}-${{ hashFiles('scripts/install-mailpit.sh') }}
+
+      - name: Install Mailpit
+        run: npm run services:install
+
+      - name: Start local services (Mailpit, payment simulator, calendar mock)
+        run: |
+          mkdir -p .services
+          nohup npm run mailpit:start > .services/mailpit.log 2>&1 &
+          nohup npm run services:start > .services/services.log 2>&1 &
+          for url in http://127.0.0.1:8025/readyz http://127.0.0.1:4010/health http://127.0.0.1:4020/health; do
+            for i in $(seq 1 30); do
+              curl -fsS "$url" > /dev/null && echo "ready: $url" && break
+              [ "$i" = 30 ] && echo "::error::$url did not become ready" && cat .services/*.log && exit 1
+              sleep 1
+            done
+          done
+
+      - name: Generate BDD specs
+        run: npx bddgen
+
+      - name: API tests
+        run: npx playwright test --project=api
+        env:
+          TEST_SUITE: api
+
+      - name: Smoke tests
+        run: npx playwright test --grep @smoke --project=integration --project=chromium --project=bdd ${{ env.CROSS_BROWSER == 'true' && '--project=firefox --project=webkit' || '' }}
+        env:
+          TEST_SUITE: smoke
+
+      - name: Regression tests
+        run: npx playwright test --grep @regression --project=integration --project=chromium --project=bdd ${{ env.CROSS_BROWSER == 'true' && '--project=firefox --project=webkit' || '' }}
+        env:
+          TEST_SUITE: regression
+
+      - name: Upload HTML reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-html-reports
+          path: reports/*/html
+          retention-days: 14
+
+      - name: Upload JUnit results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-results
+          path: reports/*/junit/results.xml
+          retention-days: 14
+
+      - name: Upload traces, screenshots and videos of failed tests
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+
+      - name: Upload service logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: service-logs
+          path: .services/
+          retention-days: 7

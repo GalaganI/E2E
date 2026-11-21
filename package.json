@@ -1,0 +1,51 @@
+{
+  "name": "ecommerce-playwright-framework",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright + TypeScript E2E framework for an e-commerce application with local payment, webhook, calendar and email integrations.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "services:install": "bash scripts/install-mailpit.sh",
+    "services:start": "tsx services/start-services.ts",
+    "mailpit:start": ".tools/mailpit/mailpit --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025",
+    "bdd:gen": "bddgen",
+    "pretest": "bddgen",
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:ui": "playwright test --project=chromium",
+    "test:integration": "playwright test --project=integration",
+    "test:bdd": "bddgen && playwright test --project=bdd",
+    "test:smoke": "bddgen && playwright test --grep @smoke",
+    "test:regression": "bddgen && playwright test --grep @regression",
+    "test:headed": "playwright test --project=chromium --headed",
+    "test:debug": "playwright test --project=chromium --debug",
+    "report": "playwright show-report reports/html",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "bddgen && tsc --noEmit",
+    "check": "npm run lint && npm run format:check && npm run typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "@types/nodemailer": "8.0.2",
+    "dotenv": "18.0.10",
+    "eslint": "10.15.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-playwright": "2.12.2",
+    "nodemailer": "10.6.1",
+    "playwright-bdd": "9.2.1",
+    "prettier": "3.10.1",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.73.0",
+    "zod": "4.6.7"
+  }
+}
